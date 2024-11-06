@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request, redirect, url_for, jsonify
 from flask_restful import Resource, Api, reqparse
 from flask_sqlalchemy import SQLAlchemy
 import os
@@ -88,6 +88,15 @@ def delete_book(book_id):
         db.session.delete(book)
         db.session.commit()
     return redirect(url_for('index'))
+
+@app.route('/health')
+def health_check():
+    try:
+        # Try to query the database to verify connection
+        Book.query.first()
+        return jsonify({"status": "healthy", "database": "connected"}), 200
+    except Exception as e:
+        return jsonify({"status": "unhealthy", "database": str(e)}), 500
 
 # Run the app
 if __name__ == '__main__':

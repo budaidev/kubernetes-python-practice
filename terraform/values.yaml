@@ -1,0 +1,28 @@
+namespace: ${namespace}
+image:
+  repository: python-webapp
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+service:
+  type: LoadBalancer
+  port: 80
+  targetPort: 5000
+
+ingress:
+  enabled: true
+  className: "nginx"
+  hosts:
+    - host: ""
+      paths:
+        - path: /
+          pathType: Prefix
+
+config:
+  database_url: "sqlite:///./books.db"
+  app_environment: "production"
+
+secrets:
+  api_key: "your-secret-key"
