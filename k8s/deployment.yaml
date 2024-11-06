@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: python-webapp
+  labels:
+    app: python-webapp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: python-webapp
+  template:
+    metadata:
+      labels:
+        app: python-webapp
+    spec:
+      containers:
+      - name: python-webapp
+        image: python-webapp:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 5000
+        envFrom:
+        - configMapRef:
+            name: webapp-config
+        - secretRef:
+            name: webapp-secret
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 10
