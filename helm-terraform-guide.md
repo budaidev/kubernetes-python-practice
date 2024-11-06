@@ -419,5 +419,3 @@ terraform apply tfplan
 terraform plan -var-file="prod.tfvars" -out=tfplan
 terraform apply tfplan
 ```
-
-This guide provides a comprehensive overview of using Helm and Terraform for deploying and managing a Python web application in Kubernetes. Would you like me to explain any specific part in more detail?
