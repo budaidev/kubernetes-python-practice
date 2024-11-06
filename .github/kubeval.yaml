@@ -1,0 +1,5 @@
+apiVersion: kubeval.com/v1alpha1
+kind: Config
+outputFormat: tap
+strict: true
+ignoreMissingSchemas: true

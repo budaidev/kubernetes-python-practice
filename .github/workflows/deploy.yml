@@ -1,0 +1,71 @@
+name: Deploy to Minikube
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: windows-latest  # Changed to Windows runner
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Setup Minikube
+      run: |
+        minikube start --driver=docker --kubernetes-version=stable
+      shell: cmd
+
+    - name: Install Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: latest
+
+    - name: Install Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: "1.0.0"
+
+    - name: Configure kubectl
+      run: |
+        minikube update-context
+        kubectl cluster-info
+        kubectl get nodes
+      shell: cmd
+
+    - name: Build and Load Docker image
+      run: |
+        @FOR /f "tokens=*" %i IN ('minikube -p minikube docker-env --shell cmd') DO @%i
+        docker build -t python-webapp:latest ./app
+        docker build -t python-webapp:${{ github.sha }} ./app
+      shell: cmd
+
+    - name: Initialize Terraform
+      run: |
+        cd terraform
+        terraform init
+      shell: cmd
+
+    - name: Create tfvars file
+      run: |
+        cd terraform
+        echo image_repository = "python-webapp" > terraform.tfvars
+        echo image_tag = "${{ github.sha }}" >> terraform.tfvars
+        echo namespace = "default" >> terraform.tfvars
+        echo app_name = "python-webapp" >> terraform.tfvars
+      shell: cmd
+
+    - name: Deploy with Terraform
+      run: |
+        cd terraform
+        terraform plan -out=tfplan
+        terraform apply -auto-approve tfplan
+      shell: cmd
+
+    - name: Verify deployment
+      run: |
+        kubectl get pods -l app=python-webapp -o wide
+        kubectl get services python-webapp-service
+        kubectl get events --sort-by=.metadata.creationTimestamp
+      shell: cmd
