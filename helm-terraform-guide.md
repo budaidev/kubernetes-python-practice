@@ -11,6 +11,11 @@
 
 ## 1. Prerequisites and Setup
 
+```bash
+choco install kubernetes-helm
+choco install terraform
+```
+
 ### Initial Setup
 ```bash
 # Start Minikube with sufficient resources
