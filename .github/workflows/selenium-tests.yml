@@ -1,0 +1,79 @@
+name: Selenium Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.9'
+
+    - name: Install Chrome
+      run: |
+        choco install googlechrome -y
+        choco install chromedriver -y
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-test.txt
+        pip install -r app/requirements.txt
+
+    # If using Kind/Minikube
+    - name: Create k8s Kind Cluster
+      uses: helm/kind-action@v1.8.0
+
+    - name: Deploy application
+      run: |
+        # Build and load image
+        docker build -t python-webapp:latest ./app
+        kind load docker-image python-webapp:latest
+
+        # Deploy with helm
+        helm upgrade --install python-webapp ./helm/python-webapp `
+          --set image.repository=python-webapp `
+          --set image.tag=latest
+
+    - name: Wait for deployment
+      run: |
+        kubectl wait --timeout=300s --for=condition=available deployment/python-webapp-python-webapp
+        kubectl port-forward service/python-webapp-service 5000:80 &
+        Start-Sleep -Seconds 10
+
+    - name: Run Selenium tests
+      run: |
+        mkdir reports -Force
+        pytest tests/e2e/test_web_interface.py -v --html=reports/report.html
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v2
+      with:
+        name: test-results
+        path: reports/
+
+    - name: Debug Info on Failure
+      if: failure()
+      run: |
+        Write-Host "=== Kubernetes Resources ==="
+        kubectl get all -n default
+        
+        Write-Host "=== Pod Logs ==="
+        kubectl logs -l app=python-webapp --tail=100
+        
+        Write-Host "=== Chrome Version ==="
+        (Get-Item (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe').'(Default)').VersionInfo.ProductVersion
+        
+        Write-Host "=== ChromeDriver Version ==="
+        chromedriver --version

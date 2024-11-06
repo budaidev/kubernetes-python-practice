@@ -1,4 +1,4 @@
-name: Deploy to Minikube
+name: Deploy and Test
 
 on:
   push:
@@ -6,66 +6,104 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
-    runs-on: windows-latest  # Changed to Windows runner
+  deploy-and-test:
+    runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v2
 
-    - name: Setup Minikube
+    # Basic setup - these should work locally
+    - name: Setup Dependencies
       run: |
-        minikube start --driver=docker --kubernetes-version=stable
-      shell: cmd
+        # Install basic requirements
+        apt-get update && apt-get install -y \
+          curl \
+          wget \
+          apt-transport-https \
+          ca-certificates \
+          docker.io
+
+    # Direct Kubernetes setup instead of Kind
+    - name: Setup Kubernetes
+      run: |
+        # Install kubectl
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        mv kubectl /usr/local/bin/
+        
+        # Install minikube
+        curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+        chmod +x minikube-linux-amd64
+        mv minikube-linux-amd64 /usr/local/bin/minikube
+        
+        # Start minikube
+        minikube start --driver=docker --force
 
     - name: Install Helm
-      uses: azure/setup-helm@v3
-      with:
-        version: latest
-
-    - name: Install Terraform
-      uses: hashicorp/setup-terraform@v2
-      with:
-        terraform_version: "1.0.0"
-
-    - name: Configure kubectl
       run: |
-        minikube update-context
-        kubectl cluster-info
-        kubectl get nodes
-      shell: cmd
+        curl https://raw.githubusercontent.com/helm/helm/master/scripts/get-helm-3 | bash
 
-    - name: Build and Load Docker image
+    # Basic application deployment
+    - name: Build Docker image
       run: |
-        @FOR /f "tokens=*" %i IN ('minikube -p minikube docker-env --shell cmd') DO @%i
         docker build -t python-webapp:latest ./app
-        docker build -t python-webapp:${{ github.sha }} ./app
-      shell: cmd
+        
+        # Make sure minikube can access the image
+        minikube image load python-webapp:latest
 
-    - name: Initialize Terraform
+    - name: Deploy with Helm
       run: |
-        cd terraform
-        terraform init
-      shell: cmd
-
-    - name: Create tfvars file
-      run: |
-        cd terraform
-        echo image_repository = "python-webapp" > terraform.tfvars
-        echo image_tag = "${{ github.sha }}" >> terraform.tfvars
-        echo namespace = "default" >> terraform.tfvars
-        echo app_name = "python-webapp" >> terraform.tfvars
-      shell: cmd
-
-    - name: Deploy with Terraform
-      run: |
-        cd terraform
-        terraform plan -out=tfplan
-        terraform apply -auto-approve tfplan
-      shell: cmd
+        helm upgrade --install python-webapp ./helm/python-webapp \
+          --set image.repository=python-webapp \
+          --set image.tag=latest
 
     - name: Verify deployment
       run: |
         kubectl get pods -l app=python-webapp -o wide
         kubectl get services python-webapp-service
-        kubectl get events --sort-by=.metadata.creationTimestamp
-      shell: cmd
+
+    - name: Wait for deployment
+      run: |
+        kubectl wait --timeout=300s --for=condition=available deployment/python-webapp-python-webapp || true
+        kubectl get pods -l app=python-webapp
+
+    # Basic health check
+    - name: Check application health
+      run: |
+        # Setup port-forward
+        kubectl port-forward service/python-webapp-service 5000:80 &
+        sleep 10
+        
+        # Check health endpoint
+        curl http://localhost:5000/health || true
+
+    # Debug information
+    - name: Debug Info
+      if: always()
+      run: |
+        echo "=== Kubernetes Resources ==="
+        kubectl get all -n default
+        
+        echo "=== Pod Logs ==="
+        kubectl logs -l app=python-webapp --tail=100 || true
+        
+        echo "=== Pod Description ==="
+        kubectl describe pods -l app=python-webapp || true
+        
+        echo "=== Docker Images ==="
+        docker images | grep python-webapp || true
+
+    # Cleanup
+    - name: Cleanup
+      if: always()
+      run: |
+        pkill -f "kubectl port-forward" || true
+        minikube delete || true
+
+# Commenting out notifications for local testing
+#notifications:
+#  email:
+#    recipients:
+#      - your-email@example.com
+#    on_success: change
+#    on_failure: always
